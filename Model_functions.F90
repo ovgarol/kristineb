@@ -86,251 +86,231 @@ implicit none
  end subroutine
 !--------------------------------------------------------------------
 subroutine f_T(self,deeptemp,f_T_out)
-implicit none
- class (type_hzg_kristineb),intent(in) :: self
- real(rk),dimension(2),intent(out):: f_T_out
- real(rk)::ft_Phy,ft_zoo
- real(rk),intent(in) :: deeptemp ! Interpolation functions for deep water temperature
-! real(rk),intent(in) :: seatemp ! Interpolation functions for see surface temperature
- real(rk) :: meantemp
-!        :return: Temperature dependency
-        if  (self%T_forc .eqv. .true.) then
-             meantemp=(deeptemp)!+seatemp)/2.0_rk
-            fT_Phy= self%Tcons_phy**((meantemp-self%T_ref)/10._rk)
-            fT_zoo= self%Tcons_zoo**((meantemp-self%T_ref)/10._rk)
-            f_T_out=(/fT_Phy,fT_zoo/)
-        else
-            fT_Phy=1.0
-            fT_zoo=1.0
-            f_T_out=(/fT_Phy,fT_zoo/)
-	end if
-	return
-end subroutine
+  implicit none
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),dimension(2),intent(out):: f_T_out
+  real(rk)::ft_Phy,ft_zoo
+  real(rk),intent(in) :: deeptemp ! Interpolation functions for deep water temperature
+  ! real(rk),intent(in) :: seatemp ! Interpolation functions for see surface temperature
+  real(rk) :: meantemp
+  f_T_out=(/1.0,1.0/)
+
+  if  (self%T_forc .eqv. .true.) then
+    meantemp=(deeptemp)!+seatemp)/2.0_rk
+    fT_Phy= self%Tcons_phy**((meantemp-self%T_ref)/10._rk)
+    fT_zoo= self%Tcons_zoo**((meantemp-self%T_ref)/10._rk)
+    f_T_out=(/fT_Phy,fT_zoo/)
+  end if
+
+  return
+end subroutine f_T
 !-----------------------------------------------------------------------------
 subroutine  F_Co2sr(self,pCO2,f_co2)!f_LpCo2,f_HpCo2,log_ESD)
-implicit none
- class (type_hzg_kristineb),intent(in) :: self
- real(rk),intent(in) :: pCO2
-integer::i
-real(rk),dimension(self%phyto_num),intent(out)::f_co2
-real(rk)::nom,dom
-f_co2(:)=1.0_rk
-       if (self%co2_forc .eqv. .true.) then
-            do i=1,self%phyto_num
-                nom=1.0_rk-exp(-self%a_co2*pco2)
-                dom=1.0_rk+self%a_star*exp(self%log_ESD(i)-self%a_co2*pco2)
-            	f_co2(i)=(nom/dom)
-	    end do
-        end if
-        return
-end subroutine
+  implicit none
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),intent(in) :: pCO2
+  integer::i
+  real(rk),dimension(self%phyto_num),intent(out)::f_co2
+  real(rk)::nom,dom
+  f_co2(:)=1.0_rk
+
+  if (self%co2_forc .eqv. .true.) then
+    do i=1,self%phyto_num
+      nom=1.0_rk-exp(-self%a_co2*pco2)
+      dom=1.0_rk+self%a_star*exp(self%log_ESD(i)-self%a_co2*pco2)
+      f_co2(i)=(nom/dom)
+    end do
+  end if
+
+  return
+end subroutine F_Co2sr
 
 !-----------------------------------------------------------------------------
 subroutine f_parsr(self, Phy, Q_N,f_co2,F_T,par,mixl,f_par)
-implicit none
- class (type_hzg_kristineb),intent(in) :: self
- !real(rk),intent(in):: t! Time
- real(rk),dimension(self%phyto_num),intent(in):: Phy! Phytoplankton biomass concentration, mmol-C m^-3
- real(rk),dimension(self%phyto_num),intent(in):: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
- real(rk),dimension(self%phyto_num),intent(in):: f_co2! CO2 forcing
- real(rk),dimension(2),intent(in):: F_T! Temperature dependency for phytoplankton
- real(rk),dimension(self%phyto_num),intent(out)::f_par! PAR forcing
- real(rk),dimension(11) :: bgc_params
- real(rk),intent (in)::par
- integer::i
- real(rk)::k,par_w,phyNtot,par_tmp
- real(rk),dimension(self%phyto_num)::phyN
- real(rk),intent(in) :: mixl
+  implicit none
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),dimension(self%phyto_num),intent(in):: Phy! Phytoplankton biomass concentration, mmol-C m^-3
+  real(rk),dimension(self%phyto_num),intent(in):: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
+  real(rk),dimension(self%phyto_num),intent(in):: f_co2! CO2 forcing
+  real(rk),dimension(2),intent(in):: F_T! Temperature dependency for phytoplankton
+  real(rk),dimension(self%phyto_num),intent(out)::f_par! PAR forcing
+  real(rk),intent (in)::par
+  integer::i
+  real(rk)::k,par_w,phyNtot,par_tmp
+  real(rk),dimension(self%phyto_num)::phyN
+  real(rk),intent(in) :: mixl
 
- par_tmp=par!*3600*24
- f_par(:)=1._rk
-        if (self%PAR_forc .eqv. .true.) then
-!             phyN: phytoplankton concentration, mmol-N m^-3
-	    do i=1,self%phyto_num
-	            phyN(i) = Q_N(i)*Phy(i)
-	    end do
-!             phyNtot: Light attenuation due to phytoplankton biomass, m^2 mmol-N^-1
-            phyNtot = sum(phyN(:)) * self%k_phyN
-            k = self%kbg + phyNtot
-!             par_w: Average light intensity within mixed layer depth,
-            par_w = par / (mixl * k) * (1.0_rk - exp(-1.0_rk * k * mixl))
-          !  par_w = par_tmp / (self%z * k) * (1._rk - exp(-1.0_rk * k * self%z))
-            do i=1,self%phyto_num
-		!call bgc_parameters(self,self%log_ESD(i), bgc_params) !OG
-                !f_par(i)=1.0_rk-exp(-(self%a_par*par_w*Q_N(i))/(bgc_params(i)*f_co2(i)*F_T(1))) !OG
-                f_par(i)=1.0_rk-exp(-(self%a_par*par_w*Q_N(i))/(self%mumax(i)*f_co2(i)*F_T(1))) !OG
-            !    f_par(i)=par_w/(par_w+((bgc_params(1)*f_co2(i)*F_T(1))/(self%alpha)))
-	    end do
-	end if
-        return
-end subroutine
+  par_tmp=par!*3600*24
+  f_par(:)=1._rk
+  if (self%PAR_forc .eqv. .true.) then
+    do i=1,self%phyto_num
+      phyN(i) = Q_N(i)*Phy(i) ! phyN: phytoplankton concentration, mmol-N m^-3
+    end do
+    phyNtot = sum(phyN(:)) * self%k_phyN ! phyNtot: Light attenuation due to phytoplankton biomass, m^2 mmol-N^-1
+    k = self%kbg + phyNtot
+    par_w = par/(mixl*k)*(1.0_rk-exp(-1.0_rk*k*mixl)) ! par_w: Average light intensity within mixed layer depth,
+    do i=1,self%phyto_num
+      f_par(i)=1.0_rk-exp(-(self%a_par*par_w*Q_N(i))/(self%mumax(i)*f_co2(i)*F_T(1))) !OG
+    end do
+  end if
+
+  return
+end subroutine f_parsr
 !-----------------------------------------------------------------------------
 subroutine Phy_growth_rate(self, Q_N,Q_P,F_T,F_co2,F_par, P_growth_rate)
-!use model_pars
 implicit none
- class (type_hzg_kristineb),intent(in) :: self
-   real(rk),dimension(self%phyto_num),intent(in) :: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
-   real(rk),dimension(self%phyto_num),intent(in) :: Q_P! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
-   real(rk),dimension(self%phyto_num),intent(in) :: F_T! Temperature dependency for phytoplankton
-   real(rk),dimension(self%phyto_num),intent(in) :: F_co2! Co2 forcing
-   real(rk),dimension(self%phyto_num),intent(in) :: F_par! PAR forcing
-   real(rk),dimension(self%phyto_num),intent(out) :: P_growth_rate !Phytoplankton growth rate, d^-1
-   integer::i,nutlim
-   real(rk),dimension(11) :: bgc_params
-   real(rk)::f_nut,r,n,g_N,mu_max,q_Nl,q_Pl
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),dimension(self%phyto_num),intent(in) :: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
+  real(rk),dimension(self%phyto_num),intent(in) :: Q_P! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
+  real(rk),dimension(self%phyto_num),intent(in) :: F_T! Temperature dependency for phytoplankton
+  real(rk),dimension(self%phyto_num),intent(in) :: F_co2! Co2 forcing
+  real(rk),dimension(self%phyto_num),intent(in) :: F_par! PAR forcing
+  real(rk),dimension(self%phyto_num),intent(out) :: P_growth_rate !Phytoplankton growth rate, d^-1
+  integer::i,nutlim
+  real(rk)::f_nut,r,n,g_N,mu_max,q_Nl,q_Pl
 
-	nutlim=int(self%Nut_lim)
+  nutlim=int(self%Nut_lim)
+
   do i=1,self%phyto_num
-	    !call bgc_parameters(self,self%log_ESD(i),bgc_params) !OG
-            !if mu_inf is given instead of mu_max, we should correct:
-            if (self%convert_mu .eqv. .true.) then
-                !mu_max=bgc_params(1)*(bgc_params(3)/(bgc_params(3)-bgc_params(2))) !OG
-                !mu_max=bgc_params(1)*(bgc_params(8)/(bgc_params(8)-bgc_params(7))) !OG
-                mu_max=self%mumax(i)*(self%QN_max(i)/(self%QN_max(i)-self%QN_min(i))) !OG
-                mu_max=mu_max*(self%QP_max(i)/(self%QP_max(i)-self%QP_min(i))) !OG
-            else
-                !mu_max=bgc_params(1) !OG
-                mu_max=self%mumax(i) !OG
-	    end if
-            !to use with mu_max:
-            !q_Nl=(Q_N(i)-bgc_params(2))/(bgc_params(3)-bgc_params(2))
-            !q_Pl=(Q_P(i)-bgc_params(7))/(bgc_params(8)-bgc_params(7))
-            !q_Nl=(Q_N(i)-bgc_params(2))/Q_N(i) !OG
-            !q_Pl=(Q_P(i)-bgc_params(7))/Q_P(i) !OG
-            q_Nl=(Q_N(i)-self%QN_min(i))/Q_N(i) !OG
-            q_Pl=(Q_P(i)-self%QP_min(i))/Q_P(i) !OG
+    if (self%convert_mu .eqv. .true.) then
+      mu_max=self%mumax(i)*(self%QN_max(i)/(self%QN_max(i)-self%QN_min(i)))* &
+      & mu_max*(self%QP_max(i)/(self%QP_max(i)-self%QP_min(i))) !OG
+    else
+      mu_max=self%mumax(i) !OG
+    end if
 
-            if (nutlim == 1) then
-                r=q_Pl/q_Nl
-                n=self%n_star*(1._rk+q_Nl)
-                g_N=(r-r**(1._rk+n))/(1._rk-r**(1._rk+n))
-                f_nut=q_Nl*g_N
-            elseif (nutlim == 2) then
-                f_nut= min(q_Nl,q_Pl)
-            elseif (nutlim == 3) then
-                f_nut= q_Nl*q_Pl/(q_Nl+q_Pl)
-            elseif (nutlim == 4) then
-                f_nut= q_Nl*q_Pl
-    	    end if
-            P_growth_rate(i) = ( mu_max * f_nut * F_T(1) * F_co2(i) * F_par(i))
-            !if (i==1) write(0,*) mu_max, f_nut, F_T(1), F_co2(i), F_par(i)         !OG
-	end do
+    q_Nl=(Q_N(i)-self%QN_min(i))/Q_N(i) !OG
+    q_Pl=(Q_P(i)-self%QP_min(i))/Q_P(i) !OG
 
-        return
-end subroutine
+    select case (nutlim)
+      case (1)
+        r=q_Pl/q_Nl
+        n=self%n_star*(1._rk+q_Nl)
+        g_N=(r-r**(1._rk+n))/(1._rk-r**(1._rk+n))
+        f_nut=q_Nl*g_N
+      case (2)
+        f_nut= min(q_Nl,q_Pl)
+      case (3)
+        f_nut= q_Nl*q_Pl/(q_Nl+q_Pl)
+      case (4)
+        f_nut= q_Nl*q_Pl
+      case default
+        f_nut = 1.
+    end select
+
+    P_growth_rate(i) = ( mu_max * f_nut * F_T(1) * F_co2(i) * F_par(i))
+
+  end do
+  return
+end subroutine Phy_growth_rate
+
 !------------------------------------------------------------------------------
 real(rk) function aggr_rate(self, Phy,Q_N,D_N)! Aggregation rate, d^-1
-implicit none
- class (type_hzg_kristineb),intent(in) :: self
- real(rk),dimension(self%phyto_num),intent(in) :: Phy! Phytoplankton biomass concentration, mmol-C m^-3
- real(rk),dimension(self%phyto_num),intent(in) :: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
- real(rk),intent(in) :: D_N! Nitrogen content of detritus concentration,  mmol-N m^-3
- integer::i
- real(rk),dimension(self%phyto_num) :: phy_conc
-  phy_conc=0.0_rk
-	Do i=1,self%phyto_num
-        	phy_conc(i)=Phy(i)*Q_N(i)
-	end do
-        !aggr_rate=self%A_star_opt*(product(phy_conc(:))+D_N)
-        aggr_rate=self%A_star_opt*(sum(phy_conc(:))+D_N)
-        return
-end function
+  implicit none
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),dimension(self%phyto_num),intent(in) :: Phy! Phytoplankton biomass concentration, mmol-C m^-3
+  real(rk),dimension(self%phyto_num),intent(in) :: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
+  real(rk),intent(in) :: D_N! Nitrogen content of detritus concentration,  mmol-N m^-3
+  integer::i
+  real(rk),dimension(self%phyto_num) :: phy_conc
+  phy_conc(:)=0.0_rk
+
+  do i=1,self%phyto_num
+    phy_conc(i)=Phy(i)*Q_N(i)
+  end do
+  aggr_rate=self%A_star_opt*(sum(phy_conc(:))+D_N)
+
+  return
+end function aggr_rate
+
 !------------------------------------------------------------------------------
 subroutine N_uptake(self,N,Q_N,F_T,par,uptake_rate_N)
-implicit none
- class (type_hzg_kristineb),intent(in) :: self
- real(rk),intent(in) ::  N! Nitrogen concentration, mmol-N m^-3
- real(rk),dimension(self%phyto_num),intent(in) :: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
- real(rk),dimension(self%phyto_num),intent(in) :: F_T! Temperature dependency
- real(rk),dimension(self%phyto_num),intent(out) :: uptake_rate_N! Phytoplankton nitrogen uptake rate, mol-N mol-C^-1 d^-1
- real(rk),intent(in) :: par !PAR from data
- integer:: i
- real(rk),dimension(11) :: bgc_params
- real(rk)::nom_N,dom_N,q
-  uptake_rate_N=0.0_rk
-	if (par>=0.0) then  !No uptake during night
-        Do i=1,self%phyto_num
-	    !call bgc_parameters(self,self%log_ESD(i), bgc_params) !OG
-            !nom_N=bgc_params(4)*bgc_params(6)*N !OG
-            !dom_N=bgc_params(4)+bgc_params(6)*N !OG
-            !q=max(0.0_rk,(bgc_params(3)-Q_N(i))/(bgc_params(3)-bgc_params(2))) !OG
-            nom_N=self%vN_max(i)*self%N_affin(i)*N !OG
-            dom_N=self%vN_max(i)+self%N_affin(i)*N !OG
-            q=max(0.0_rk,(self%QN_max(i)-Q_N(i))/(self%QN_max(i)-self%QN_min(i))) !OG
-            uptake_rate_N(i)=(nom_N/dom_N)*sqrt(F_T(1))*q
-	end do
-	end if
-        return
-end subroutine
+  implicit none
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),intent(in) ::  N! Nitrogen concentration, mmol-N m^-3
+  real(rk),dimension(self%phyto_num),intent(in) :: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
+  real(rk),dimension(self%phyto_num),intent(in) :: F_T! Temperature dependency
+  real(rk),dimension(self%phyto_num),intent(out) :: uptake_rate_N! Phytoplankton nitrogen uptake rate, mol-N mol-C^-1 d^-1
+  real(rk),intent(in) :: par !PAR from data
+  integer:: i
+  real(rk):: nom_N,dom_N,q
+  uptake_rate_N(:)=0.0_rk
+
+  if (par>=0.0) then  !No uptake during night
+    do i=1,self%phyto_num
+      nom_N=self%vN_max(i)*self%N_affin(i)*N !OG
+      dom_N=self%vN_max(i)+self%N_affin(i)*N !OG
+      q=max(0.0_rk,(self%QN_max(i)-Q_N(i))/(self%QN_max(i)-self%QN_min(i))) !OG
+      uptake_rate_N(i)=(nom_N/dom_N)*sqrt(F_T(1))*q
+    end do
+  end if
+
+  return
+end subroutine N_uptake
+
 !------------------------------------------------------------------------------
 subroutine P_uptake(self,P, Q_P,F_T,par,uptake_rate_P)
-implicit none
- class (type_hzg_kristineb),intent(in) :: self
- real(rk),intent(in) ::  P! Phsphorous concentration, mmol-P m^-3
- real(rk),dimension(self%phyto_num),intent(in) :: Q_P! Phytoplankton intracellular phosphorous cell quota, mol-P mol-C^-1
- real(rk),dimension(self%phyto_num),intent(in) :: F_T! Temperature dependency for phytoplankton
- real(rk),dimension(self%phyto_num),intent(out) :: uptake_rate_P! Phytoplankton nutrient uptake rate, mol-P mol-C^-1 d^-1
- real(rk),intent(in) :: par !PAR from data
- integer:: i
- real(rk) :: nom_P,dom_P,q
- real(rk),dimension(11) :: bgc_params
- 	uptake_rate_P=0.0_rk
-	if (par>=0.0) then !No uptake during night
-	  Do i=1,self%phyto_num
-	    !call bgc_parameters(self,self%log_ESD(i), bgc_params) !OG
-            !nom_P=bgc_params(9)*bgc_params(11)*P !OG
-            !dom_P=bgc_params(9)+bgc_params(11)*P !OG
-            nom_P=self%vP_max(1)*self%P_affin(i)*P !OG
-            dom_P=self%vP_max(1)+self%P_affin(i)*P !OG
-        !    q=max(0.0_rk,(bgc_params(8)-Q_P(i))/(bgc_params(8)-bgc_params(7)))
-            uptake_rate_P(i)=(nom_P/dom_P)*sqrt(F_T(1))
-            !uptake_rate_P(i)=(nom_P/dom_P)*sqrt(F_T(1))*q
-	end do
-	end if
-        return
-end subroutine
+  implicit none
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),intent(in) ::  P! Phsphorous concentration, mmol-P m^-3
+  real(rk),dimension(self%phyto_num),intent(in) :: Q_P! Phytoplankton intracellular phosphorous cell quota, mol-P mol-C^-1
+  real(rk),dimension(self%phyto_num),intent(in) :: F_T! Temperature dependency for phytoplankton
+  real(rk),dimension(self%phyto_num),intent(out) :: uptake_rate_P! Phytoplankton nutrient uptake rate, mol-P mol-C^-1 d^-1
+  real(rk),intent(in) :: par !PAR from data
+  integer:: i
+  real(rk) :: nom_P,dom_P,q
+  uptake_rate_P(:)=0.0_rk
+
+  if (par>=0.0) then !No uptake during night
+    do i=1,self%phyto_num
+      nom_P=self%vP_max(1)*self%P_affin(i)*P !OG
+      dom_P=self%vP_max(1)+self%P_affin(i)*P !OG
+      uptake_rate_P(i)=(nom_P/dom_P)*sqrt(F_T(1))
+    end do
+  end if
+  return
+end subroutine P_uptake
+
 !------------------------------------------------------------------------------
 subroutine sink_rate(self,Q_N,Q_P,mixl,sinking)
-!use model_pars
-implicit none
- class (type_hzg_kristineb),intent(in) :: self
- real(rk),dimension(self%phyto_num),intent(in) :: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
- real(rk),dimension(self%phyto_num),intent(in) :: Q_P! Phytoplankton intracellular phosphorous cell quota, mol-P mol-C^-1
- real(rk),dimension(self%phyto_num),intent(out) :: sinking! sinking rate, d^-1
- integer:: i
- real(rk) :: physiol,qN,qP
- real(rk),dimension(11) :: bgc_params
- real(rk),intent(in)::mixl !mixing layer depth
- sinking=0.0_rk
- do i=1,self%phyto_num
-	    !call bgc_parameters(self,self%log_ESD(i), bgc_params) !OG
-            !qN=(Q_N(i)-bgc_params(2))/(bgc_params(3)-bgc_params(2)) !OG
-            !qP=(Q_P(i)-bgc_params(7))/(bgc_params(8)-bgc_params(7)) !OG
-            qN=(Q_N(i)-self%QN_min(i))/(self%QN_max(i)-self%QN_min(i)) !OG
-            qP=(Q_P(i)-self%QP_min(i))/(self%QP_max(i)-self%QP_min(i)) !OG
+  implicit none
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),dimension(self%phyto_num),intent(in) :: Q_N! Phytoplankton intracellular nitrogen cell quota, mol-N mol-C^-1
+  real(rk),dimension(self%phyto_num),intent(in) :: Q_P! Phytoplankton intracellular phosphorous cell quota, mol-P mol-C^-1
+  real(rk),dimension(self%phyto_num),intent(out) :: sinking! sinking rate, d^-1
+  integer :: i
+  real(rk) :: physiol,qN,qP
+  real(rk),intent(in)::mixl !mixing layer depth
+  sinking=0.0_rk
 
-!         healthy, non-limited cells create buouyancy
- !           physiol = exp(-4.0_rk*qN*qP)
-            physiol = exp(-0.5*((qP*qN)*16.0)**2) !Todo: Why?
-!         size dependency: Stokes - vacuolation
-            sinking(i)=physiol*exp(0.5_rk*self%log_ESD(i))* 0.06_rk/mixl
-       !     sinking(i)=physiol*exp(0.25_rk*self%log_ESD(i))* 0.3_rk/mixl
-!z=mixed layer depth
-	end do
-        return
-end subroutine
+  do i=1,self%phyto_num
+    qN=(Q_N(i)-self%QN_min(i))/(self%QN_max(i)-self%QN_min(i)) !OG
+    qP=(Q_P(i)-self%QP_min(i))/(self%QP_max(i)-self%QP_min(i)) !OG
+    physiol = exp(-0.5*((qP*qN)*16.0)**2) !Todo: Why?
+    sinking(i)=physiol*exp(0.5_rk*self%log_ESD(i))* 0.06_rk/mixl
+  end do
+
+  return
+end subroutine sink_rate
+
 !------------------------------------------------------------------------------
 subroutine Respiration(self, N_uptake,R_N)
-implicit none
- class (type_hzg_kristineb),intent(in) :: self
- real(rk),dimension(self%phyto_num),intent(in) :: N_uptake! Nitrogen uptake rate, mol-N mol-C^-1 d^-1
- real(rk),dimension(self%phyto_num),intent(out) :: R_N!Phytoplankton respiration rate, d^-1
- integer:: i
-        do i=1,self%phyto_num
-            R_N(i)=N_uptake(i)*self%mol_ratio
-	end do
-        return
-end subroutine
+  implicit none
+  class (type_hzg_kristineb),intent(in) :: self
+  real(rk),dimension(self%phyto_num),intent(in) :: N_uptake! Nitrogen uptake rate, mol-N mol-C^-1 d^-1
+  real(rk),dimension(self%phyto_num),intent(out) :: R_N!Phytoplankton respiration rate, d^-1
+  integer:: i
+
+  do i=1,self%phyto_num
+    R_N(i)=N_uptake(i)*self%mol_ratio
+  end do
+
+  return
+end subroutine Respiration
+
+!!!!! AQUI ME QUEDE
+!!!!!
+
 !------------------------------------------------------------------------------
 subroutine Grazing_forcing(self,Phy,F_T,Mean,zoo_pref,cop_pref,Zoo,grazing,Lz,I_max)
 implicit none
